@@ -252,8 +252,8 @@ supervision_injection_active() {  # <state>
 # so recovery (§5) re-enters afk if it is present after a restart.
 afk_enter() {  # <state>
   mkdir -p "$1"
+  fm_supervision_owner_set "$1" afk || return 1
   date '+%s' > "$1/$AFK_FLAG_NAME"
-  fm_supervision_owner_set "$1" afk
 }
 
 afk_exit() {  # <state>

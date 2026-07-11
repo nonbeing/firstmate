@@ -55,7 +55,11 @@ No `/back` is needed. The first genuine message is the return signal:
 - A message **without** the sentinel marker and **not** starting with `/afk` -> the captain is back.
   Clear `state/.afk` through the existing `afk_exit` return path.
   For a Codex primary, that return path restores the durable owner to `normal-codex`; `bin/fm-codex-supervise-start.sh` then adopts the same verified daemon instead of starting another one.
-  For every other primary, clear the owner and stop the away daemon as before.
+  For every other primary, clear both the owner and the away-mode flag manually, then stop the daemon:
+  ```sh
+  rm -f state/.supervision-owner state/.afk
+  pkill -f bin/fm-supervise-daemon.sh || true
+  ```
   Flush one distilled "while you were out" catch-up (drain `state/.wake-queue`, summarize any pending escalations from `state/.subsuper-escalations` and any `state/.subsuper-inject-wedged` marker), and resume the emitted primary-harness supervision protocol from session start.
 - A message **with** the sentinel marker (`FM_INJECT_MARK`, ASCII 0x1f) -> it
   is a daemon escalation; stay afk and process it.
