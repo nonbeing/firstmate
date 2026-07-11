@@ -267,7 +267,11 @@ afk_exit() {  # <state>
     return 1
   fi
   rm -f "$state/$AFK_FLAG_NAME"
-  fm_supervision_owner_set "$state" normal-codex
+  if ! fm_supervision_owner_set "$state" normal-codex; then
+    date '+%s' > "$state/$AFK_FLAG_NAME"
+    echo "error: failed to write supervision owner; .afk restored to preserve recoverable afk state; retry via the /afk return contract, then re-run fm-codex-supervise-start.sh" >&2
+    return 1
+  fi
 }
 
 # should_exit_afk: encodes firstmate's afk-exit contract as a testable function.
