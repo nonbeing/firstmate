@@ -39,6 +39,10 @@ if fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
       exit 1
     fi
   fi
+  if [ -e "$STATE/.afk" ]; then
+    echo "error: away mode claimed supervision during adoption; exit afk first (return from /afk, then re-run this script)" >&2
+    exit 1
+  fi
   echo "normal-codex: adopted existing daemon pid=$_pid"
   exit 0
 fi
