@@ -21,6 +21,7 @@ Codex opened a new turn containing `Supervisor escalate (1 event(s)): smoke.stat
 Daemon PID `42472` remained live, the watcher beacon advanced from epoch `1783789593` to `1783789628`, and the injected turn's session-start drain left `state/.wake-queue` at zero bytes, with no duplicate wake remaining.
 The lab used one-second poll, signal-grace, batch, and housekeeping cadences to shorten the smoke; ownership, idle/composer guards, submit confirmation, queue drain, and watcher re-arm paths were unchanged.
 
+
 The legacy checkpoint remains a bounded diagnostic and recovery tool only.
 It drains an already-durable queue before taking a watcher lock and forces one heartbeat reconciliation for a terminal status missed in an earlier gap.
 It cannot provide continuous normal supervision because Codex does not reopen a fully ended session for a later filesystem write.
