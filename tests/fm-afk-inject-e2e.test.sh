@@ -208,6 +208,7 @@ stop_daemon() {
 reset_state() {
   # Clear daemon and watcher state for a fresh scenario.
   rm -f "$STATE_DIR"/*.status \
+         "$STATE_DIR"/.afk \
          "$STATE_DIR"/.subsuper-* \
          "$STATE_DIR"/.supervision-owner \
          "$STATE_DIR"/.wake-queue* \

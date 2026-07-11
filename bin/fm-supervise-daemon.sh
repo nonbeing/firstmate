@@ -258,16 +258,16 @@ afk_enter() {  # <state>
 
 afk_exit() {  # <state>
   local state=$1 primary_harness
-  rm -f "$1/$AFK_FLAG_NAME"
   primary_harness=${FM_PRIMARY_HARNESS:-}
   if [ -z "$primary_harness" ] && [ -x "$FM_DAEMON_DIR/fm-harness.sh" ]; then
     primary_harness=$(FM_HOME="$FM_HOME" "$FM_DAEMON_DIR/fm-harness.sh" 2>/dev/null || true)
   fi
-  if [ "$primary_harness" = codex ]; then
-    fm_supervision_owner_set "$state" normal-codex
-  else
-    fm_supervision_owner_clear "$state"
+  if [ "$primary_harness" != codex ]; then
+    echo "error: primary harness is not Codex (detected: '${primary_harness:-unknown}'); afk flag and ownership retained; exit afk via the /afk return contract from a Codex session, then re-run fm-codex-supervise-start.sh" >&2
+    return 1
   fi
+  rm -f "$state/$AFK_FLAG_NAME"
+  fm_supervision_owner_set "$state" normal-codex
 }
 
 # should_exit_afk: encodes firstmate's afk-exit contract as a testable function.
