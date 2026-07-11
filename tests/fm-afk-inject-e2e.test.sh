@@ -194,6 +194,12 @@ start_daemon() {
 
 start_normal_codex_daemon() {
   FM_DAEMON_BIN="$ROOT/bin/fm-codex-supervise-start.sh" start_daemon
+  local i=0
+  while [ "$i" -lt 30 ] &&
+    [ "$(cat "$STATE_DIR/.supervision-owner" 2>/dev/null || true)" != normal-codex ]; do
+    sleep 0.2
+    i=$((i + 1))
+  done
 }
 
 stop_daemon() {
