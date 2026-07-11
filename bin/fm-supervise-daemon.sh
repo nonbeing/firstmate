@@ -1402,6 +1402,7 @@ fm_super_main() {
   fi
   FM_SUPERVISOR_TARGET="$discovered"
   local TARGET="$FM_SUPERVISOR_TARGET"
+  local supervision_mode="${FM_SUPERVISION_MODE:-away-only}"
 
   # --- validate supervisor target at startup (a missing target is a typo) ---
   # Dispatches through bin/fm-backend.sh instead of a raw `tmux display-message`
@@ -1416,7 +1417,17 @@ fm_super_main() {
     exit 1
   fi
 
-  local afk_status="off" supervision_mode="${FM_SUPERVISION_MODE:-away-only}" supervision_owner="unset"
+  if [ "$supervision_mode" = normal-codex ]; then
+    fm_supervision_owner_set "$STATE" normal-codex || {
+      echo "error: could not record normal Codex supervision ownership" >&2
+      log "startup failed: could not record normal Codex supervision ownership"
+      fm_lock_release "$LOCK" 2>/dev/null || true
+      rm -f "$PIDFILE" 2>/dev/null || true
+      exit 1
+    }
+  fi
+
+  local afk_status="off" supervision_owner="unset"
   afk_active "$STATE" && afk_status="on"
   supervision_owner=$(fm_supervision_owner_get "$STATE" 2>/dev/null || printf unset)
   log "daemon starting (pid $$); target=$TARGET; target_source=$target_source; backend=$BACKEND; backend_source=$backend_source; afk=$afk_status; owner=$supervision_owner; mode=$supervision_mode; inject_skip='${FM_INJECT_SKIP:-$INJECT_SKIP_DEFAULT}'; stale_escalate=${FM_STALE_ESCALATE_SECS:-$STALE_ESCALATE_SECS_DEFAULT}s; batch=${FM_ESCALATE_BATCH_SECS:-$ESCALATE_BATCH_SECS_DEFAULT}s"
