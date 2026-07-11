@@ -18,10 +18,6 @@ DAEMON="$SCRIPT_DIR/fm-supervise-daemon.sh"
 mkdir -p "$STATE"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
-fm_supervision_owner_set "$STATE" normal-codex || {
-  echo "error: could not record normal Codex supervision ownership" >&2
-  exit 1
-}
 
 daemon_lock_owner() {
   local owner
@@ -57,7 +53,17 @@ daemon_lock_held_by_live_daemon() {
 }
 
 if daemon_lock_held_by_live_daemon; then
-  echo "normal-codex: adopted existing daemon pid=$(cat "$(daemon_lock_owner)/pid")"
+  daemon_pid=$(cat "$(daemon_lock_owner)/pid")
+  fm_supervision_owner_set "$STATE" normal-codex || {
+    echo "error: could not transfer supervision ownership to normal Codex" >&2
+    exit 1
+  }
+  if ! daemon_lock_held_by_live_daemon; then
+    [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" != normal-codex ] || fm_supervision_owner_clear "$STATE"
+    echo "error: supervisor daemon exited during normal Codex ownership transfer" >&2
+    exit 1
+  fi
+  echo "normal-codex: adopted existing daemon pid=$daemon_pid"
   exit 0
 fi
 
