@@ -462,7 +462,7 @@ fm_daemon_lock_owner() {  # <lock>
   printf '%s\n' "$lock"
 }
 
-fm_daemon_lock_held_by_live_daemon() {  # <lock> <daemon_script>
+fm_daemon_lock_held_by_live_daemon() {  # <lock> <daemon-script>
   local lock=$1 daemon_script=$2 owner pid identity current command
   owner=$(fm_daemon_lock_owner "$lock") || return 1
   pid=$(cat "$owner/pid" 2>/dev/null || true)

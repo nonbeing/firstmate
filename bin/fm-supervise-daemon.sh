@@ -1422,6 +1422,13 @@ fm_super_main() {
   fi
 
   if [ "$supervision_mode" = normal-codex ]; then
+    if [ -e "$STATE/.afk" ]; then
+      echo "error: away mode claimed supervision during normal Codex startup; return from /afk, then retry" >&2
+      log "startup failed: away mode claimed supervision before normal ownership"
+      fm_lock_release "$LOCK" 2>/dev/null || true
+      rm -f "$PIDFILE" 2>/dev/null || true
+      exit 1
+    fi
     fm_supervision_owner_set "$STATE" normal-codex || {
       echo "error: could not record normal Codex supervision ownership" >&2
       log "startup failed: could not record normal Codex supervision ownership"
@@ -1429,6 +1436,14 @@ fm_super_main() {
       rm -f "$PIDFILE" 2>/dev/null || true
       exit 1
     }
+    if [ -e "$STATE/.afk" ]; then
+      fm_supervision_owner_set "$STATE" afk 2>/dev/null || true
+      echo "error: away mode claimed supervision during normal Codex startup; return from /afk, then retry" >&2
+      log "startup failed: away mode claimed supervision after normal ownership write"
+      fm_lock_release "$LOCK" 2>/dev/null || true
+      rm -f "$PIDFILE" 2>/dev/null || true
+      exit 1
+    fi
   fi
 
   local afk_status="off" supervision_owner="unset"
@@ -1452,7 +1467,11 @@ fm_super_main() {
     fi
     if [ "$supervision_mode" = normal-codex ] &&
       [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
-      fm_supervision_owner_clear "$STATE" 2>/dev/null || true
+      if [ -e "$STATE/.afk" ]; then
+        fm_supervision_owner_set "$STATE" afk 2>/dev/null || true
+      else
+        fm_supervision_owner_clear "$STATE" 2>/dev/null || true
+      fi
     fi
     fm_lock_release "$LOCK" 2>/dev/null || true
     rm -f "$PIDFILE" 2>/dev/null || true
