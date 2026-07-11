@@ -446,3 +446,36 @@ fm_wake_print_deduped() {
     }
   ' "$file"
 }
+
+fm_daemon_lock_owner() {  # <lock>
+  local lock=$1 owner
+  if [ -L "$lock" ]; then
+    owner=$(readlink "$lock" 2>/dev/null) || return 1
+    [ -n "$owner" ] || return 1
+    case "$owner" in
+      /*) printf '%s\n' "$owner" ;;
+      *) printf '%s/%s\n' "$(dirname "$lock")" "$owner" ;;
+    esac
+    return 0
+  fi
+  [ -d "$lock" ] || return 1
+  printf '%s\n' "$lock"
+}
+
+fm_daemon_lock_held_by_live_daemon() {  # <lock> <daemon-script>
+  local lock=$1 daemon_script=$2 owner pid identity current command
+  owner=$(fm_daemon_lock_owner "$lock") || return 1
+  pid=$(cat "$owner/pid" 2>/dev/null || true)
+  fm_pid_alive "$pid" || return 1
+  identity=$(cat "$owner/pid-identity" 2>/dev/null || true)
+  if [ -n "$identity" ]; then
+    current=$(fm_pid_identity "$pid") || return 1
+    [ "$current" = "$identity" ]
+    return
+  fi
+  command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+  case "$command" in
+    *"$daemon_script"*|*"fm-supervise-daemon.sh"*) return 0 ;;
+  esac
+  return 1
+}

@@ -110,6 +110,43 @@ test_normal_codex_daemon_shutdown_preserves_afk_owner() {
   pass "normal Codex daemon shutdown preserves transferred AFK ownership"
 }
 
+test_afk_exit_non_codex_preserves_afk_ownership() {
+  local dir state out status
+  dir=$(make_supercase afk-exit-non-codex)
+  state="$dir/state"
+  afk_enter "$state"
+
+  status=0
+  out=$(FM_PRIMARY_HARNESS=claude afk_exit "$state" 2>&1) || status=$?
+
+  [ "$status" -ne 0 ] || fail "non-Codex afk exit unexpectedly succeeded"
+  assert_present "$state/.afk" "non-Codex afk exit cleared the away marker"
+  [ "$(fm_supervision_owner_get "$state" 2>/dev/null || true)" = afk ] || \
+    fail "non-Codex afk exit abandoned afk supervision ownership"
+  assert_contains "$out" "afk flag and ownership retained" "non-Codex afk exit did not fail loudly"
+  pass "non-Codex afk exit fails loudly and preserves afk ownership"
+}
+
+test_afk_exit_owner_write_failure_restores_afk_marker() {
+  local dir state out status
+  dir=$(make_supercase afk-exit-owner-write-failure)
+  state="$dir/state"
+  afk_enter "$state"
+
+  status=0
+  out=$( {
+    fm_supervision_owner_set() { return 1; }
+    FM_PRIMARY_HARNESS=codex afk_exit "$state"
+  } 2>&1) || status=$?
+
+  [ "$status" -ne 0 ] || fail "afk exit unexpectedly succeeded when owner write failed"
+  assert_present "$state/.afk" "failed afk exit did not restore the away marker"
+  [ "$(fm_supervision_owner_get "$state" 2>/dev/null || true)" = afk ] || \
+    fail "failed afk exit abandoned afk supervision ownership"
+  assert_contains "$out" ".afk restored" "failed afk exit did not explain its recoverable state"
+  pass "failed afk exit restores the marker and preserves afk ownership"
+}
+
 test_afk_start_refuses_when_flag_cannot_be_written() {
   local dir state out status
   dir=$(make_supercase afk-start-flag-unwritable)
@@ -1739,6 +1776,8 @@ test_inject_msg_defers_on_dead_shell_unknown() {
 test_codex_start_failure_leaves_no_false_owner
 test_normal_codex_daemon_shutdown_releases_owner
 test_normal_codex_daemon_shutdown_preserves_afk_owner
+test_afk_exit_non_codex_preserves_afk_ownership
+test_afk_exit_owner_write_failure_restores_afk_marker
 test_afk_start_refuses_when_flag_cannot_be_written
 test_afk_start_ignores_stale_pidfile_without_lock
 test_afk_start_reclaims_stale_daemon_lock_reused_pid

@@ -11,7 +11,7 @@ DAEMON="$SCRIPT_DIR/fm-supervise-daemon.sh"
 
 [ "$#" -eq 0 ] || { echo "usage: $(basename "$0")" >&2; exit 2; }
 [ ! -e "$STATE/.afk" ] || {
-  echo "error: away mode already owns supervision; exit afk first (clear state/.afk and update owner), then re-run this script" >&2
+  echo "error: away mode already owns supervision; exit afk first (return from /afk, then re-run this script)" >&2
   exit 1
 }
 
@@ -19,46 +19,26 @@ mkdir -p "$STATE"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
-daemon_lock_owner() {
-  local owner
-  if [ -L "$LOCK" ]; then
-    owner=$(readlink "$LOCK" 2>/dev/null) || return 1
-    [ -n "$owner" ] || return 1
-    case "$owner" in
-      /*) printf '%s\n' "$owner" ;;
-      *) printf '%s/%s\n' "$(dirname "$LOCK")" "$owner" ;;
-    esac
-    return 0
-  fi
-  [ -d "$LOCK" ] || return 1
-  printf '%s\n' "$LOCK"
-}
-
-daemon_lock_held_by_live_daemon() {
-  local owner pid identity current command
-  owner=$(daemon_lock_owner) || return 1
-  pid=$(cat "$owner/pid" 2>/dev/null || true)
-  fm_pid_alive "$pid" || return 1
-  identity=$(cat "$owner/pid-identity" 2>/dev/null || true)
-  if [ -n "$identity" ]; then
-    current=$(fm_pid_identity "$pid") || return 1
-    [ "$current" = "$identity" ]
-    return
-  fi
-  command=$(ps -p "$pid" -o command= 2>/dev/null || true)
-  case "$command" in
-    *"$DAEMON"*|*"fm-supervise-daemon.sh"*) return 0 ;;
-  esac
-  return 1
-}
-
-if daemon_lock_held_by_live_daemon; then
-  daemon_pid=$(cat "$(daemon_lock_owner)/pid")
-  fm_supervision_owner_set "$STATE" normal-codex || {
-    echo "error: could not transfer supervision ownership to normal Codex" >&2
+if fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
+  _owner=$(fm_daemon_lock_owner "$LOCK" 2>/dev/null || true)
+  daemon_pid=$([ -n "$_owner" ] && cat "$_owner/pid" 2>/dev/null || true)
+  [ -n "$daemon_pid" ] || { echo "error: daemon vanished between liveness check and pid read" >&2; exit 1; }
+  [ ! -e "$STATE/.afk" ] || {
+    echo "error: away mode owns supervision; exit afk first (return from /afk, then re-run this script)" >&2
     exit 1
   }
-  if ! daemon_lock_held_by_live_daemon; then
+  if [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" != normal-codex ]; then
+    fm_supervision_owner_set "$STATE" normal-codex || {
+      echo "error: could not transfer supervision ownership to normal Codex" >&2
+      exit 1
+    }
+  fi
+  if [ -e "$STATE/.afk" ]; then
+    fm_supervision_owner_set "$STATE" afk 2>/dev/null || true
+    echo "error: away mode claimed supervision during adoption; exit afk first (return from /afk, then re-run this script)" >&2
+    exit 1
+  fi
+  if ! fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
     [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" != normal-codex ] || fm_supervision_owner_clear "$STATE"
     echo "error: supervisor daemon exited during normal Codex ownership transfer" >&2
     exit 1
