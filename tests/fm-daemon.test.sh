@@ -12,6 +12,7 @@ set -u
 
 DAEMON="$ROOT/bin/fm-supervise-daemon.sh"
 AFK_START="$ROOT/bin/fm-afk-start.sh"
+CODEX_START="$ROOT/bin/fm-codex-supervise-start.sh"
 # Source the daemon's pure functions once. Its main loop is skipped under sourcing
 # via a BASH_SOURCE guard, so only classify_*/housekeeping/escalate_*/afk_* and the
 # pane/submit helpers become defined.
@@ -22,6 +23,20 @@ if [ -z "${FM_TEST_DAEMON_SOURCED:-}" ]; then
 fi
 
 TMP_ROOT=$(fm_test_tmproot fm-daemon-tests)
+
+test_codex_start_failure_leaves_no_false_owner() {
+  local dir state status
+  dir=$(make_supercase codex-start-failure)
+  state="$dir/state"
+  status=0
+
+  FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=unsupported \
+    "$CODEX_START" >/dev/null 2>&1 || status=$?
+
+  [ "$status" -ne 0 ] || fail "normal Codex launcher unexpectedly succeeded with an unsupported backend"
+  assert_absent "$state/.supervision-owner" "failed normal Codex startup left false supervision ownership"
+  pass "failed normal Codex startup leaves no false supervision owner"
+}
 
 test_afk_start_refuses_when_flag_cannot_be_written() {
   local dir state out status
@@ -1649,6 +1664,7 @@ test_inject_msg_defers_on_dead_shell_unknown() {
   pass "inject_msg: defers on a dead-shell/unreadable composer (unknown), never typing the escalation into a shell"
 }
 
+test_codex_start_failure_leaves_no_false_owner
 test_afk_start_refuses_when_flag_cannot_be_written
 test_afk_start_ignores_stale_pidfile_without_lock
 test_afk_start_reclaims_stale_daemon_lock_reused_pid
