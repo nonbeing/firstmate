@@ -3,7 +3,8 @@
 # foreground process when one is not already alive.
 #
 # Usage: fm-afk-start.sh
-#   Sets state/.afk, checks state/.supervise-daemon.lock, and:
+#   Transfers state/.supervision-owner to afk, sets state/.afk, checks
+#   state/.supervise-daemon.lock, and:
 #     - prints "afk: daemon already running pid=<pid>" then exits 0 when that
 #       lock is held by a live daemon;
 #     - otherwise execs bin/fm-supervise-daemon.sh in the foreground.
@@ -32,10 +33,15 @@ case "${1:-}" in
 esac
 
 mkdir -p "$STATE"
-date '+%s' > "$STATE/.afk"
 
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+
+date '+%s' > "$STATE/.afk"
+fm_supervision_owner_set "$STATE" afk || {
+  echo "error: could not record away-mode supervision ownership" >&2
+  exit 1
+}
 
 daemon_lock_owner() {
   local owner

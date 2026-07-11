@@ -11,6 +11,43 @@ FM_WAKE_QUEUE_LOCK="${FM_WAKE_QUEUE_LOCK:-$STATE/.wake-queue.lock}"
 FM_LOCK_STALE_AFTER="${FM_LOCK_STALE_AFTER:-2}"
 mkdir -p "$STATE"
 
+# Supervision ownership is durable so normal Codex and away mode can transfer
+# one already-running daemon without a watcher gap or a second daemon. The
+# owner is deliberately a closed set: an unreadable or unexpected value never
+# permits injection.
+fm_supervision_owner_get() {  # <state>
+  local state=$1 owner
+  owner=$(cat "$state/.supervision-owner" 2>/dev/null || true)
+  case "$owner" in
+    afk|normal-codex) printf '%s\n' "$owner" ;;
+    *) return 1 ;;
+  esac
+}
+
+fm_supervision_owner_set() {  # <state> <afk|normal-codex>
+  local state=$1 owner=$2 tmp
+  case "$owner" in
+    afk|normal-codex) ;;
+    *) return 2 ;;
+  esac
+  mkdir -p "$state"
+  tmp=$(mktemp "$state/.supervision-owner.tmp.XXXXXX") || return 1
+  printf '%s\n' "$owner" > "$tmp" && mv -f "$tmp" "$state/.supervision-owner"
+}
+
+fm_supervision_owner_clear() {  # <state>
+  rm -f "$1/.supervision-owner"
+}
+
+fm_supervision_owner_injection_active() {  # <state>
+  local state=$1 owner
+  owner=$(fm_supervision_owner_get "$state") || return 1
+  case "$owner" in
+    afk) [ -e "$state/.afk" ] ;;
+    normal-codex) [ ! -e "$state/.afk" ] ;;
+  esac
+}
+
 fm_current_pid() {
   printf '%s\n' "${BASHPID:-$$}"
 }
