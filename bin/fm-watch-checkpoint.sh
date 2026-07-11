@@ -52,7 +52,9 @@ esac
 # new watcher lock, so a Codex continuation cannot wait out a fresh checkpoint
 # while already-actionable work is sitting in its own queue.
 if [ -s "$STATE/.wake-queue" ]; then
-  exec "$SCRIPT_DIR/fm-wake-drain.sh"
+  echo "signal: queued wakes drained"
+  "$SCRIPT_DIR/fm-wake-drain.sh"
+  exit 0
 fi
 
 OUT=$(mktemp "${TMPDIR:-/tmp}/fm-watch-checkpoint.out.XXXXXX") || exit 1
