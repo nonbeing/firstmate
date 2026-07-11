@@ -11,7 +11,7 @@ DAEMON="$SCRIPT_DIR/fm-supervise-daemon.sh"
 
 [ "$#" -eq 0 ] || { echo "usage: $(basename "$0")" >&2; exit 2; }
 [ ! -e "$STATE/.afk" ] || {
-  echo "error: away mode already owns supervision; use bin/fm-afk-start.sh instead" >&2
+  echo "error: away mode already owns supervision; exit afk first (clear state/.afk and update owner), then re-run this script" >&2
   exit 1
 }
 
