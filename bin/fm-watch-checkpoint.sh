@@ -47,6 +47,8 @@ case "$SECONDS_ARG" in
   0) echo "error: --seconds must be greater than zero" >&2; exit 2 ;;
 esac
 
+command -v perl >/dev/null 2>&1 || { echo "error: perl is required for the bounded checkpoint timeout" >&2; exit 1; }
+
 # A previous checkpoint may have ended after an actionable wake was queued but
 # before the primary drained it. Surface that durable record before claiming a
 # new watcher lock, so a Codex continuation cannot wait out a fresh checkpoint
