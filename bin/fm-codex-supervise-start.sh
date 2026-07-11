@@ -33,6 +33,11 @@ if fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
       echo "error: could not record normal Codex supervision ownership" >&2
       exit 1
     }
+    if [ -e "$STATE/.afk" ]; then
+      fm_supervision_owner_set "$STATE" afk 2>/dev/null || true
+      echo "error: away mode claimed supervision during adoption; exit afk first (return from /afk, then re-run this script)" >&2
+      exit 1
+    fi
   fi
   echo "normal-codex: adopted existing daemon pid=$_pid"
   exit 0
