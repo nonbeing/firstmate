@@ -617,7 +617,7 @@ On every verified primary harness, "no turn ends blind" has a structural backsto
 `docs/turnend-guard.md` owns the per-harness hook mechanisms, empirical validation, scoping details, and documented fail-open tradeoffs.
 Watcher liveness is harness-aware.
 Do not assume one primary harness can use another harness's foreground or background shape.
-For example, Claude uses a background-notify cycle, while Codex intentionally uses bounded foreground checkpoints.
+For example, Claude uses a background-notify cycle, while Codex uses a daemon-backed cycle started by `bin/fm-codex-supervise-start.sh`.
 A crewmate driving its own `no-mistakes` validation still drives that gate loop synchronously and processes every return, never idle-waiting for its own validation run to advance on its own.
 
 Token discipline: for a crewmate's current state prefer `bin/fm-crew-state.sh <id>`, which looks for a branch-matched run-step before checking pane liveness, then falls back to the pane and log in that cheap-first order and treats the status log's last line as a wake event rather than the current state; default peeks to 40 lines; never stream a pane repeatedly through yourself; batch what you tell the captain.
