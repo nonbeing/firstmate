@@ -1446,6 +1446,10 @@ fm_super_main() {
     if [ -n "${CUR_TMP:-}" ]; then
       rm -f "$CUR_TMP" 2>/dev/null || true
     fi
+    if [ "$supervision_mode" = normal-codex ] &&
+      [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
+      fm_supervision_owner_clear "$STATE" 2>/dev/null || true
+    fi
     fm_lock_release "$LOCK" 2>/dev/null || true
     rm -f "$PIDFILE" 2>/dev/null || true
     log "daemon shutting down"
