@@ -39,7 +39,7 @@ Startup failure clears any ownership written by that attempt while preserving an
 
 Entering AFK sets the away marker and transfers ownership to `afk` without restarting the daemon.
 Returning from AFK under a Codex primary clears the away marker and transfers ownership back to `normal-codex` without restarting the daemon.
-Non-Codex primaries retain the existing behavior of clearing ownership and stopping the away daemon.
+For every other primary, the return path stops only the local identity-verified away daemon before clearing the local owner and marker.
 
 ## Delivery Safety
 

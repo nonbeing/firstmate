@@ -23,7 +23,9 @@ The lab used one-second poll, signal-grace, batch, and housekeeping cadences to 
 
 
 The legacy checkpoint remains a bounded diagnostic and recovery tool only.
-It drains an already-durable queue before taking a watcher lock and forces one heartbeat reconciliation for a terminal status missed in an earlier gap.
+It drains an already-durable queue before taking a watcher lock.
+Use `bin/fm-watch-checkpoint.sh --recover-missed-terminal` to force one heartbeat reconciliation for a terminal status missed in an earlier gap.
+An ordinary checkpoint does not force that scan, so it cannot manufacture recovery wakes for terminal state already observed by the watcher.
 It cannot provide continuous normal supervision because Codex does not reopen a fully ended session for a later filesystem write.
 Do not run `bin/fm-watch-arm.sh` as Codex's normal supervision command.
 The PreToolUse seatbelt in `.codex/hooks.json` denies a backgrounded, piped, or bundled watcher command.

@@ -22,6 +22,7 @@ mkdir -p "$STATE"
 if fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
   _owner=$(fm_daemon_lock_owner "$LOCK" 2>/dev/null || true)
   daemon_pid=$([ -n "$_owner" ] && cat "$_owner/pid" 2>/dev/null || true)
+  daemon_identity=$([ -n "$_owner" ] && cat "$_owner/pid-identity" 2>/dev/null || true)
   [ -n "$daemon_pid" ] || { echo "error: daemon vanished between liveness check and pid read" >&2; exit 1; }
   [ ! -e "$STATE/.afk" ] || {
     echo "error: away mode owns supervision; exit afk first (return from /afk, then re-run this script)" >&2
@@ -38,9 +39,20 @@ if fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
     echo "error: away mode claimed supervision during adoption; exit afk first (return from /afk, then re-run this script)" >&2
     exit 1
   fi
-  if ! fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
-    [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" != normal-codex ] || fm_supervision_owner_clear "$STATE"
-    echo "error: supervisor daemon exited during normal Codex ownership transfer" >&2
+  final_owner=$(fm_daemon_lock_owner "$LOCK" 2>/dev/null || true)
+  final_pid=$([ -n "$final_owner" ] && cat "$final_owner/pid" 2>/dev/null || true)
+  final_identity=$([ -n "$final_owner" ] && cat "$final_owner/pid-identity" 2>/dev/null || true)
+  if [ -e "$STATE/.afk" ] || \
+    [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" != normal-codex ] || \
+    [ "$final_owner" != "$_owner" ] || [ "$final_pid" != "$daemon_pid" ] || \
+    [ "$final_identity" != "$daemon_identity" ] || \
+    ! fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
+    if [ -e "$STATE/.afk" ]; then
+      fm_supervision_owner_set "$STATE" afk 2>/dev/null || true
+    elif [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
+      fm_supervision_owner_clear "$STATE"
+    fi
+    echo "error: supervisor ownership changed during normal Codex adoption; retry after away-mode state settles" >&2
     exit 1
   fi
   echo "normal-codex: adopted existing daemon pid=$daemon_pid"

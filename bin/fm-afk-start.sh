@@ -37,11 +37,10 @@ mkdir -p "$STATE"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
-fm_supervision_owner_set "$STATE" afk || {
-  echo "error: could not record away-mode supervision ownership" >&2
+fm_supervision_afk_enter "$STATE" || {
+  echo "error: could not acquire away-mode supervision ownership and marker" >&2
   exit 1
 }
-date '+%s' > "$STATE/.afk"
 
 _owner=$(fm_daemon_lock_owner "$LOCK" 2>/dev/null || true)
 pid=$([ -n "$_owner" ] && cat "$_owner/pid" 2>/dev/null || true)

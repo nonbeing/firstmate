@@ -39,6 +39,21 @@ fm_supervision_owner_clear() {  # <state>
   rm -f "$1/.supervision-owner"
 }
 
+fm_supervision_afk_enter() {  # <state>
+  local state=$1 marker
+  mkdir -p "$state"
+  [ ! -d "$state/.afk" ] || return 1
+  marker=$(mktemp "$state/.afk.tmp.XXXXXX") || return 1
+  if ! date '+%s' > "$marker" || ! mv -f "$marker" "$state/.afk"; then
+    rm -f "$marker" 2>/dev/null || true
+    return 1
+  fi
+  if ! fm_supervision_owner_set "$state" afk; then
+    rm -f "$state/.afk" 2>/dev/null || true
+    return 1
+  fi
+}
+
 fm_supervision_owner_injection_active() {  # <state>
   local state=$1 owner
   owner=$(fm_supervision_owner_get "$state") || return 1
@@ -477,5 +492,38 @@ fm_daemon_lock_held_by_live_daemon() {  # <lock> <daemon-script>
   case "$command" in
     *"$daemon_script"*|*"fm-supervise-daemon.sh"*) return 0 ;;
   esac
+  return 1
+}
+
+fm_daemon_stop_for_home() {  # <state> <daemon-script>
+  local state=$1 daemon_script=$2 owner pid identity current_identity attempt
+  local lock="$state/.supervise-daemon.lock"
+  [ -e "$lock" ] || [ -L "$lock" ] || return 0
+  if ! fm_daemon_lock_held_by_live_daemon "$lock" "$daemon_script"; then
+    owner=$(fm_daemon_lock_owner "$lock" 2>/dev/null || true)
+    pid=$([ -n "$owner" ] && cat "$owner/pid" 2>/dev/null || true)
+    fm_pid_alive "$pid" && return 1
+    fm_lock_remove_path "$lock" 2>/dev/null || true
+    return 0
+  fi
+  owner=$(fm_daemon_lock_owner "$lock") || return 1
+  pid=$(cat "$owner/pid" 2>/dev/null || true)
+  identity=$(cat "$owner/pid-identity" 2>/dev/null || true)
+  fm_pid_alive "$pid" || return 1
+  kill -TERM "$pid" 2>/dev/null || return 1
+  for ((attempt = 0; attempt < 10; attempt++)); do
+    [ -e "$lock" ] || [ -L "$lock" ] || return 0
+    sleep 0.1
+  done
+  fm_pid_alive "$pid" && kill -KILL "$pid" 2>/dev/null || true
+  for ((attempt = 0; attempt < 10; attempt++)); do
+    [ -e "$lock" ] || [ -L "$lock" ] || return 0
+    current_identity=$(fm_pid_identity "$pid" 2>/dev/null || true)
+    if [ -n "$identity" ] && [ "$current_identity" != "$identity" ]; then
+      fm_lock_remove_path "$lock" 2>/dev/null || true
+      [ ! -e "$lock" ] && [ ! -L "$lock" ] && return 0
+    fi
+    sleep 0.1
+  done
   return 1
 }

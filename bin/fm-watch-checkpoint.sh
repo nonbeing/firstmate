@@ -8,6 +8,7 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 SECONDS_ARG=${FM_CODEX_WATCH_CHECKPOINT:-180}
+RECOVER_MISSED_TERMINAL=0
 
 usage() {
   cat <<'EOF'
@@ -16,6 +17,7 @@ Usage: fm-watch-checkpoint.sh [--seconds <n>]
 Run bin/fm-watch.sh in the foreground for a bounded checkpoint.
 On an actionable watcher wake, pass through the watcher output and exit 0.
 On a quiet checkpoint, print "checkpoint: no actionable wake within <n>s" and exit 124.
+Use --recover-missed-terminal only to reconcile a terminal status written while no watcher was alive.
 EOF
 }
 
@@ -28,6 +30,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --seconds=*)
       SECONDS_ARG=${1#--seconds=}
+      shift
+      ;;
+    --recover-missed-terminal)
+      RECOVER_MISSED_TERMINAL=1
       shift
       ;;
     -h|--help)
@@ -92,7 +98,7 @@ set +e
 # Kill the watcher process group, not only its shell. A plain timeout(1) can
 # return while fm-watch.sh is still waiting on sleep, leaving its singleton lock
 # behind and making the next foreground checkpoint unusable.
-FM_WATCH_FORCE_HEARTBEAT=1 run_with_perl_timeout >"$OUT" 2>"$ERR"
+FM_WATCH_FORCE_HEARTBEAT="$RECOVER_MISSED_TERMINAL" run_with_perl_timeout >"$OUT" 2>"$ERR"
 RC=$?
 set -e
 

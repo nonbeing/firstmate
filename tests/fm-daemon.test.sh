@@ -110,21 +110,89 @@ test_normal_codex_daemon_shutdown_preserves_afk_owner() {
   pass "normal Codex daemon shutdown preserves transferred AFK ownership"
 }
 
-test_afk_exit_non_codex_preserves_afk_ownership() {
-  local dir state out status
+test_afk_exit_non_codex_stops_its_home_daemon_and_clears_afk_state() {
+  local dir state fakebin daemon_pid other_dir other_state other_fakebin other_pid status i
   dir=$(make_supercase afk-exit-non-codex)
   state="$dir/state"
-  afk_enter "$state"
+  fakebin="$dir/fakebin"
+  other_dir=$(make_supercase afk-exit-other-home)
+  other_state="$other_dir/state"
+  other_fakebin="$other_dir/fakebin"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
+    FM_SUPERVISOR_BACKEND=tmux FM_SUPERVISOR_TARGET=fake:0 \
+    FM_POLL=0.05 FM_HOUSEKEEPING_TICK=1 \
+    "$AFK_START" >/dev/null 2>&1 &
+  daemon_pid=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -s "$state/.supervise-daemon.pid" ]; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ -s "$state/.supervise-daemon.pid" ] || {
+    kill -TERM "$daemon_pid" 2>/dev/null || true
+    wait "$daemon_pid" 2>/dev/null || true
+    fail "non-Codex AFK fixture daemon did not start"
+  }
+  PATH="$other_fakebin:$PATH" FM_STATE_OVERRIDE="$other_state" \
+    FM_SUPERVISOR_BACKEND=tmux FM_SUPERVISOR_TARGET=fake:0 \
+    FM_POLL=0.05 FM_HOUSEKEEPING_TICK=1 \
+    "$AFK_START" >/dev/null 2>&1 &
+  other_pid=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -s "$other_state/.supervise-daemon.pid" ]; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ -s "$other_state/.supervise-daemon.pid" ] || {
+    kill -TERM "$daemon_pid" "$other_pid" 2>/dev/null || true
+    wait "$daemon_pid" "$other_pid" 2>/dev/null || true
+    fail "other-home AFK fixture daemon did not start"
+  }
 
   status=0
-  out=$(FM_PRIMARY_HARNESS=claude afk_exit "$state" 2>&1) || status=$?
+  FM_PRIMARY_HARNESS=claude afk_exit "$state" || status=$?
 
-  [ "$status" -ne 0 ] || fail "non-Codex afk exit unexpectedly succeeded"
-  assert_present "$state/.afk" "non-Codex afk exit cleared the away marker"
-  [ "$(fm_supervision_owner_get "$state" 2>/dev/null || true)" = afk ] || \
-    fail "non-Codex afk exit abandoned afk supervision ownership"
-  assert_contains "$out" "afk flag and ownership retained" "non-Codex afk exit did not fail loudly"
-  pass "non-Codex afk exit fails loudly and preserves afk ownership"
+  if [ "$status" -ne 0 ]; then
+    kill -TERM "$daemon_pid" "$other_pid" 2>/dev/null || true
+    wait "$daemon_pid" "$other_pid" 2>/dev/null || true
+    fail "non-Codex afk exit failed"
+  fi
+  assert_absent "$state/.afk" "non-Codex afk exit left the away marker"
+  assert_absent "$state/.supervision-owner" "non-Codex afk exit left supervision ownership"
+  assert_absent "$state/.supervise-daemon.lock" "non-Codex afk exit left its singleton daemon lock"
+  if kill -0 "$daemon_pid" 2>/dev/null; then
+    kill -TERM "$daemon_pid" 2>/dev/null || true
+    wait "$daemon_pid" 2>/dev/null || true
+    kill -TERM "$other_pid" 2>/dev/null || true
+    wait "$other_pid" 2>/dev/null || true
+    fail "non-Codex afk exit left its home daemon running"
+  fi
+  wait "$daemon_pid" 2>/dev/null || true
+  if ! kill -0 "$other_pid" 2>/dev/null; then
+    fail "non-Codex afk exit stopped another home's daemon"
+  fi
+  FM_PRIMARY_HARNESS=claude afk_exit "$other_state" || {
+    kill -TERM "$other_pid" 2>/dev/null || true
+    wait "$other_pid" 2>/dev/null || true
+    fail "non-Codex afk exit could not stop the other-home fixture daemon"
+  }
+  wait "$other_pid" 2>/dev/null || true
+  pass "non-Codex afk exit stops only its home daemon and clears afk state"
+}
+
+test_afk_enter_rolls_back_owner_when_flag_write_fails() {
+  local dir state status
+  dir=$(make_supercase afk-enter-flag-write-failure)
+  state="$dir/state"
+  mkdir -p "$state/.afk"
+
+  status=0
+  afk_enter "$state" || status=$?
+
+  [ "$status" -ne 0 ] || fail "afk_enter unexpectedly succeeded with an unwritable away marker"
+  assert_absent "$state/.supervision-owner" "failed afk_enter left afk ownership without its marker"
+  pass "afk_enter rolls back ownership when the away marker cannot be written"
 }
 
 test_afk_exit_owner_write_failure_restores_afk_marker() {
@@ -159,6 +227,7 @@ test_afk_start_refuses_when_flag_cannot_be_written() {
   [ "$status" -ne 0 ] || fail "fm-afk-start.sh should fail when state/.afk cannot be written"
   assert_not_contains "$out" "starting supervise daemon" "fm-afk-start.sh continued into daemon startup after .afk write failure"
   assert_absent "$state/.supervise-daemon.log" "fm-afk-start.sh started the daemon after .afk write failure"
+  assert_absent "$state/.supervision-owner" "fm-afk-start.sh left afk ownership after its marker write failed"
   pass "fm-afk-start.sh fails before daemon startup when the afk flag cannot be written"
 }
 
@@ -1776,7 +1845,8 @@ test_inject_msg_defers_on_dead_shell_unknown() {
 test_codex_start_failure_leaves_no_false_owner
 test_normal_codex_daemon_shutdown_releases_owner
 test_normal_codex_daemon_shutdown_preserves_afk_owner
-test_afk_exit_non_codex_preserves_afk_ownership
+test_afk_exit_non_codex_stops_its_home_daemon_and_clears_afk_state
+test_afk_enter_rolls_back_owner_when_flag_write_fails
 test_afk_exit_owner_write_failure_restores_afk_marker
 test_afk_start_refuses_when_flag_cannot_be_written
 test_afk_start_ignores_stale_pidfile_without_lock

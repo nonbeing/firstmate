@@ -251,9 +251,7 @@ supervision_injection_active() {  # <state>
 # skill (enter) and by firstmate on user return (exit). Durable: a plain file,
 # so recovery (§5) re-enters afk if it is present after a restart.
 afk_enter() {  # <state>
-  mkdir -p "$1"
-  fm_supervision_owner_set "$1" afk || return 1
-  date '+%s' > "$1/$AFK_FLAG_NAME"
+  fm_supervision_afk_enter "$1"
 }
 
 afk_exit() {  # <state>
@@ -263,8 +261,13 @@ afk_exit() {  # <state>
     primary_harness=$(FM_HOME="$FM_HOME" "$FM_DAEMON_DIR/fm-harness.sh" 2>/dev/null || true)
   fi
   if [ "$primary_harness" != codex ]; then
-    echo "error: primary harness is not Codex (detected: '${primary_harness:-unknown}'); afk flag and ownership retained; exit afk via the /afk return contract from a Codex session, then re-run fm-codex-supervise-start.sh" >&2
-    return 1
+    if ! fm_daemon_stop_for_home "$state" "$FM_DAEMON_DIR/fm-supervise-daemon.sh"; then
+      echo "error: could not stop this home's identity-verified away daemon; afk state retained" >&2
+      return 1
+    fi
+    rm -f "$state/$AFK_FLAG_NAME"
+    fm_supervision_owner_clear "$state"
+    return 0
   fi
   rm -f "$state/$AFK_FLAG_NAME"
   if ! fm_supervision_owner_set "$state" normal-codex; then
@@ -1421,6 +1424,35 @@ fm_super_main() {
     exit 1
   fi
 
+  # Install shutdown cleanup before publishing normal ownership so a TERM in
+  # the startup handoff cannot strand a live-lock owner record.
+  local WATCHER_PID="" CUR_TMP=""
+  cleanup() {
+    trap - TERM INT
+    wedge_alarm_stop_active_notifier
+    escalate_flush "$STATE" 2>/dev/null || true
+    if [ -n "${WATCHER_PID:-}" ]; then
+      kill "$WATCHER_PID" 2>/dev/null || true
+      wait "$WATCHER_PID" 2>/dev/null || true
+    fi
+    if [ -n "${CUR_TMP:-}" ]; then
+      rm -f "$CUR_TMP" 2>/dev/null || true
+    fi
+    if [ "$supervision_mode" = normal-codex ] &&
+      [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
+      if [ -e "$STATE/.afk" ]; then
+        fm_supervision_owner_set "$STATE" afk 2>/dev/null || true
+      else
+        fm_supervision_owner_clear "$STATE" 2>/dev/null || true
+      fi
+    fi
+    fm_lock_release "$LOCK" 2>/dev/null || true
+    rm -f "$PIDFILE" 2>/dev/null || true
+    log "daemon shutting down"
+    exit 0
+  }
+  trap cleanup TERM INT
+
   if [ "$supervision_mode" = normal-codex ]; then
     if [ -e "$STATE/.afk" ]; then
       echo "error: away mode claimed supervision during normal Codex startup; return from /afk, then retry" >&2
@@ -1451,34 +1483,6 @@ fm_super_main() {
   supervision_owner=$(fm_supervision_owner_get "$STATE" 2>/dev/null || printf unset)
   log "daemon starting (pid $$); target=$TARGET; target_source=$target_source; backend=$BACKEND; backend_source=$backend_source; afk=$afk_status; owner=$supervision_owner; mode=$supervision_mode; inject_skip='${FM_INJECT_SKIP:-$INJECT_SKIP_DEFAULT}'; stale_escalate=${FM_STALE_ESCALATE_SECS:-$STALE_ESCALATE_SECS_DEFAULT}s; batch=${FM_ESCALATE_BATCH_SECS:-$ESCALATE_BATCH_SECS_DEFAULT}s"
   migrate_watcher_pause_markers "$STATE"
-
-  # --- shutdown: flush buffered escalations, reap child, release lock -------
-  local WATCHER_PID="" CUR_TMP=""
-  cleanup() {
-    trap - TERM INT
-    wedge_alarm_stop_active_notifier
-    escalate_flush "$STATE" 2>/dev/null || true
-    if [ -n "${WATCHER_PID:-}" ]; then
-      kill "$WATCHER_PID" 2>/dev/null || true
-      wait "$WATCHER_PID" 2>/dev/null || true
-    fi
-    if [ -n "${CUR_TMP:-}" ]; then
-      rm -f "$CUR_TMP" 2>/dev/null || true
-    fi
-    if [ "$supervision_mode" = normal-codex ] &&
-      [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
-      if [ -e "$STATE/.afk" ]; then
-        fm_supervision_owner_set "$STATE" afk 2>/dev/null || true
-      else
-        fm_supervision_owner_clear "$STATE" 2>/dev/null || true
-      fi
-    fi
-    fm_lock_release "$LOCK" 2>/dev/null || true
-    rm -f "$PIDFILE" 2>/dev/null || true
-    log "daemon shutting down"
-    exit 0
-  }
-  trap cleanup TERM INT
 
   # --- crash-loop guard -----------------------------------------------------
   local crash_times=() backoff_secs=$CRASH_NORMAL_SLEEP

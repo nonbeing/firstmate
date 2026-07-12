@@ -61,7 +61,29 @@ test_pending_queue_is_drained_before_a_new_checkpoint_starts() {
   pass "checkpoint drains a durable queued wake before starting another watcher"
 }
 
-test_next_checkpoint_reconciles_a_terminal_status_missed_while_no_watcher_lived() {
+test_ordinary_checkpoint_does_not_force_missed_terminal_recovery() {
+  local home out err status signature
+  home=$(make_home ordinary-no-recovery)
+  out="$home/out.txt"
+  err="$home/err.txt"
+
+  printf 'done: terminal status requires explicit recovery\n' > "$home/state/task.status"
+  if [ "$(uname)" = Darwin ]; then
+    signature=$(stat -f '%z:%Fm' "$home/state/task.status")
+  else
+    signature=$(stat -c '%s:%Y' "$home/state/task.status")
+  fi
+  printf '%s' "$signature" > "$home/state/.seen-task_status"
+
+  status=0
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+  expect_code 124 "$status" "ordinary checkpoint exit"
+  assert_not_contains "$(cat "$out")" "heartbeat" "ordinary checkpoint forced a missed-terminal recovery wake"
+  [ ! -s "$home/state/.wake-queue" ] || fail "ordinary checkpoint queued a false missed-terminal recovery wake"
+  pass "ordinary checkpoint does not force missed-terminal recovery"
+}
+
+test_explicit_recovery_checkpoint_reconciles_a_terminal_status_missed_while_no_watcher_lived() {
   local home out err status signature drained
   home=$(make_home missed-terminal)
   out="$home/out.txt"
@@ -85,13 +107,13 @@ test_next_checkpoint_reconciles_a_terminal_status_missed_while_no_watcher_lived(
   printf '%s' "$signature" > "$home/state/.seen-task_status"
 
   status=0
-  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$CHECKPOINT" --seconds 3 >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$CHECKPOINT" --recover-missed-terminal --seconds 3 >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "reconciliation checkpoint exit"
   assert_contains "$(cat "$out")" "heartbeat" "next checkpoint did not surface the missed terminal status"
   drained=$(FM_HOME="$home" "$ROOT/bin/fm-wake-drain.sh")
   assert_contains "$drained" $'\theartbeat\theartbeat\theartbeat' "reconciliation wake was not durable"
   assert_absent "$home/state/.watch.lock/pid" "reconciliation checkpoint did not clean up its watcher"
-  pass "next checkpoint durably reconciles a terminal status missed between checkpoints"
+  pass "explicit recovery checkpoint durably reconciles a terminal status missed between checkpoints"
 }
 
 test_check_uses_preserved_watcher_environment() {
@@ -130,6 +152,7 @@ test_existing_singleton_watcher_is_not_success() {
 test_quiet_checkpoint_exits_124_cleanly
 test_signal_passes_through_and_exits_zero
 test_pending_queue_is_drained_before_a_new_checkpoint_starts
-test_next_checkpoint_reconciles_a_terminal_status_missed_while_no_watcher_lived
+test_ordinary_checkpoint_does_not_force_missed_terminal_recovery
+test_explicit_recovery_checkpoint_reconciles_a_terminal_status_missed_while_no_watcher_lived
 test_check_uses_preserved_watcher_environment
 test_existing_singleton_watcher_is_not_success
