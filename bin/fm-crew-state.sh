@@ -21,13 +21,16 @@
 #   1. Resolve worktree + backend target + kind from state/<id>.meta.
 #   2. Matching no-mistakes run for this crew's branch, active or terminal
 #      (from `axi status`, or the coarse `no-mistakes runs` fallback)?
-#      The run-step is AUTHORITATIVE: running/fixing -> working, ci -> working,
+#      The run-step is AUTHORITATIVE for current state: running/fixing -> working, ci -> working,
 #      awaiting_approval/fix_review -> parked (with gate findings), terminal
 #      passed/checks-passed -> done, failed/cancelled -> failed. EXCEPT: while
 #      the active step is ci, `axi status` alone cannot tell "still waiting on
 #      checks" from "checks green, waiting on merge" (see nm_ci_checks_state) -
 #      a ci-step log-tail check overrides working -> done once checks read
-#      green, so a green PR is never silently read as still-validating.
+#      green, so a green PR is never silently read as still-validating. A running
+#      run-step also carries a progress-lease qualifier when active-step telemetry
+#      exists; fm-watch uses that qualifier only when deciding whether a bare
+#      turn-end is safe to absorb.
 #   3. Reconcile the status log: if its last line says needs-decision/blocked but
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
@@ -217,6 +220,48 @@ nm_run() {  # <args...>
 RUN_OUT=""
 nm_field() {  # <key>
   printf '%s\n' "$RUN_OUT" | sed -n "s/^[[:space:]]*$1:[[:space:]]*\(.*\)/\1/p" | head -1
+}
+
+# A running no-mistakes record proves pipeline ownership, not necessarily that
+# its interactive worker is still progressing.  The active_steps table provides
+# the supervision lease: a live native agent pid or non-quiet recent activity is
+# fresh; a quiet step with no live pid is expired.  Older/no-detail output stays
+# explicitly unavailable so the bare-turn-end path can fail closed without
+# misreporting the run's current `working` state.
+nm_pipeline_progress_lease() {
+  local header columns line cells i last_idx=0 pid_idx=0 active_for_idx=0
+  local active=0 activity pid active_for
+  header=$(printf '%s\n' "$RUN_OUT" | sed -n 's/^[[:space:]]*active_steps\[[0-9][0-9]*\]{\([^}]*\)}:.*/\1/p' | head -1)
+  [ -n "$header" ] || { printf 'unavailable'; return; }
+  IFS=',' read -r -a columns <<< "$header"
+  for i in "${!columns[@]}"; do
+    case "${columns[$i]}" in
+      last_activity) last_idx=$((i + 1)) ;;
+      agent_pid)     pid_idx=$((i + 1)) ;;
+      active_for)    active_for_idx=$((i + 1)) ;;
+    esac
+  done
+  [ "$last_idx" -gt 0 ] || { printf 'unavailable'; return; }
+  [ "$active_for_idx" -gt 0 ] || { printf 'unavailable'; return; }
+  while IFS= read -r line; do
+    line=$(trim "$line")
+    case "$line" in *,*) ;; *) continue ;; esac
+    IFS=',' read -r -a cells <<< "$line"
+    active_for=$(strip_quotes "$(trim "${cells[$((active_for_idx - 1))]:-}")")
+    case "$active_for" in *[0-9]*[smhd]*) ;; *) continue ;; esac
+    active=1
+    activity=$(strip_quotes "$(trim "${cells[$((last_idx - 1))]:-}")")
+    pid=$(strip_quotes "$(trim "${cells[$((pid_idx - 1))]:-}")")
+    case "$pid" in
+      ''|*[!0-9]*) ;;
+      *) if kill -0 "$pid" 2>/dev/null; then printf 'fresh'; return; fi ;;
+    esac
+    case "$activity" in
+      ''|quiet*) ;;
+      *) printf 'fresh'; return ;;
+    esac
+  done <<< "$RUN_OUT"
+  [ "$active" = 1 ] && printf 'expired' || printf 'unavailable'
 }
 # Finding count from a findings[N]{...} table header; empty when none.
 nm_findings_count() {
@@ -520,6 +565,14 @@ if [ "$HAVE_RUN" = 1 ]; then
     if [ "$CI_LOG_STATE" != not-ready ]; then
       emit "done" status-log "$(status_line_note "$LOG_LINE")${SEP}run still monitoring PR"
     fi
+  fi
+
+  if [ "$RUN_STATE" = working ] && [ "$RUN_SOURCE" = full ]; then
+    case "$(nm_pipeline_progress_lease)" in
+      fresh)       RUN_DETAIL="$RUN_DETAIL${SEP}pipeline progress lease fresh" ;;
+      expired)     RUN_DETAIL="$RUN_DETAIL${SEP}pipeline lease expired" ;;
+      unavailable) RUN_DETAIL="$RUN_DETAIL${SEP}pipeline progress lease unavailable" ;;
+    esac
   fi
 
   # Reconcile the status log. A needs-decision/blocked log line that the run-step

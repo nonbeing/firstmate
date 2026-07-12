@@ -180,6 +180,23 @@ run:
 EOF
 }
 
+run_running_with_progress_lease() {  # <branch> <last-activity> <agent-pid>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: running
+  head: "abc1234"
+  pr: ""
+  findings: none
+  active_steps[1]{step,active_for,last_activity,agent_pid,round}:
+    test,13m,$2,$3,round 1
+  steps[2]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    test,running,0,780000
+EOF
+}
+
 run_fixing() {  # <branch>
   cat <<EOF
 run:
@@ -345,6 +362,39 @@ test_active_run_is_authoritative() {
   assert_contains "$out" "source: run-step" "active run -> run-step source"
   assert_contains "$out" "validating (running)" "active run reports the step"
   pass "active run-step is authoritative"
+}
+
+# A top-level `running` run owns only pipeline bookkeeping, not proof that the
+# interactive worker is still progressing.  A quiet active step with no live
+# agent lease must fail closed so a bare turn-end can surface the worker's pane
+# blocker rather than being swallowed behind the pipeline label.
+test_quiet_run_without_agent_lease_is_not_provably_working() {
+  reset_fakes
+  local d; d=$(new_case quiet-run-no-lease)
+  make_repo_on_branch "$d/wt" fm/feat-lease-expired
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-lease-expired.meta" "window=fm:fm-feat-lease-expired" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_running_with_progress_lease fm/feat-lease-expired 'quiet 13m' '')"
+  FM_FAKE_BUSY=0
+  local out; out=$(run_crew_state "$d" feat-lease-expired)
+  assert_contains "$out" "state: working" "the externally running pipeline remains current state"
+  assert_contains "$out" "source: run-step" "expired pipeline lease remains attributable to the run-step"
+  assert_contains "$out" "pipeline lease expired" "expired pipeline lease is explicit for watcher triage"
+  pass "quiet active run without an agent lease fails closed for bare turn-end triage"
+}
+
+test_recent_run_progress_without_agent_pid_is_working() {
+  reset_fakes
+  local d; d=$(new_case fresh-run-progress)
+  make_repo_on_branch "$d/wt" fm/feat-lease-fresh
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-lease-fresh.meta" "window=fm:fm-feat-lease-fresh" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_running_with_progress_lease fm/feat-lease-fresh 'progress 4s ago' '')"
+  FM_FAKE_BUSY=0
+  local out; out=$(run_crew_state "$d" feat-lease-fresh)
+  assert_contains "$out" "state: working" "recent active-step progress remains working evidence"
+  assert_contains "$out" "source: run-step" "recent progress remains run-step sourced"
+  pass "recent pipeline progress suppresses ordinary bare turn-ends without an agent pid"
 }
 
 # (b) needs-decision log + a resumed (running/fixing) run = SUPERSEDED
@@ -1102,6 +1152,8 @@ test_usage_error() {
 }
 
 test_active_run_is_authoritative
+test_quiet_run_without_agent_lease_is_not_provably_working
+test_recent_run_progress_without_agent_pid_is_working
 test_stale_needs_decision_superseded
 test_stale_blocked_superseded
 test_genuine_parked_not_superseded

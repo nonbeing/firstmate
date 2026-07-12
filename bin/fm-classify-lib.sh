@@ -265,6 +265,32 @@ crew_is_provably_working() {  # <id>
   [ "$(crew_absorb_class "$1")" = working ]
 }
 
+# 0 only when a crew's current-state read proves a bare turn-end is safe to
+# absorb. A busy pane is live work. A run-step also needs a fresh progress lease:
+# a top-level `running` label can outlive an idle worker that has already written
+# a blocker conclusion only in pane prose. fm-crew-state preserves `working` as
+# the external pipeline state and appends the lease qualifier; this narrower
+# predicate consumes it only for no-verb signal triage.
+crew_has_live_turn_end_lease() {  # <id>
+  local id=$1 line state src
+  [ -n "$id" ] || return 1
+  line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || return 1
+  case "$line" in state:*) ;; *) return 1 ;; esac
+  state=${line#state: }; state=${state%% *}
+  [ "$state" = working ] || return 1
+  src=${line#*source: }; src=${src%% *}
+  case "$src" in
+    pane) return 0 ;;
+    run-step)
+      case "$line" in
+        *"pipeline lease expired"*|*"pipeline progress lease unavailable"*) return 1 ;;
+        *) return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
 # 0 if crew <id>'s authoritative current state is a declared external-wait pause.
 # The stale path absorbs such a crew (on a long re-surface cadence) instead of
 # escalating a possible wedge.
@@ -273,10 +299,11 @@ crew_is_paused() {  # <id>
 }
 
 # 0 (benign/absorb) if EVERY task referenced by a no-verb "signal:" wake is provably
-# working; 1 (actionable/surface) if any is not, or no task can be resolved. Pass the
-# same space-separated file list as signal_reason_is_actionable. Files are mapped to
-# task ids by stripping the .status / .turn-ended suffix; a no-verb wake with nothing
-# provably working must surface, so an empty/unresolvable list returns 1.
+# working with a live turn-end lease; 1 (actionable/surface) if any is not, or no task
+# can be resolved. A run-step that is merely `running` without recent progress is not
+# sufficient here. Pass the same space-separated file list as signal_reason_is_actionable.
+# Files are mapped to task ids by stripping the .status / .turn-ended suffix; a no-verb
+# wake with nothing provably working must surface, so an empty/unresolvable list returns 1.
 signal_crew_provably_working() {  # <file> ...
   local f base task seen=""
   for f in "$@"; do
@@ -289,7 +316,7 @@ signal_crew_provably_working() {  # <file> ...
     [ -n "$task" ] || continue
     case " $seen " in *" $task "*) continue ;; esac
     seen="$seen $task"
-    crew_is_provably_working "$task" || return 1
+    crew_has_live_turn_end_lease "$task" || return 1
   done
   [ -n "$seen" ] || return 1
   return 0

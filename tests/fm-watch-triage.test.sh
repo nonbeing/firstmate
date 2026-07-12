@@ -288,6 +288,42 @@ test_turn_ended_provably_working_absorbed() {
   pass "a bare turn-end whose crew is provably working (busy pane) is absorbed"
 }
 
+# A no-mistakes run can outlive the interactive worker that started it.  Its
+# mere `running` label is not enough to hide a bare turn-end: when the worker is
+# idle and has reached a blocker conclusion, an expired pipeline-progress lease
+# must surface the turn-end even if the worker did not append a status line.
+test_turn_ended_expired_pipeline_lease_with_blocker_surfaced() {
+  local dir state fakebin out drain_out pid
+  dir=$(make_case turn-ended-expired-pipeline-lease); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"
+  : > "$state/task.turn-ended"
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · test running, worker idle, blocker conclusion, pipeline lease expired'
+  watch_bg "$state" "$fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher absorbed a bare turn-end behind an expired pipeline lease and blocker conclusion"
+  grep -F "signal: $state/task.turn-ended" "$out" >/dev/null || fail "expired pipeline lease did not surface the bare turn-end"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after expired-pipeline turn-end failed"
+  grep "$(printf '\t')signal$(printf '\t')" "$drain_out" | grep -F "$state/task.turn-ended" >/dev/null \
+    || fail "expired pipeline lease turn-end was not queued"
+  pass "a bare turn-end with an expired pipeline lease and pane blocker conclusion is surfaced"
+}
+
+test_turn_ended_recent_pipeline_progress_absorbed() {
+  local dir state fakebin out pid
+  dir=$(make_case turn-ended-fresh-pipeline-progress); state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  : > "$state/task.turn-ended"
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · test running, worker idle, pipeline progress lease fresh'
+  watch_bg "$state" "$fakebin" "$out"
+  pid=$!
+  if ! wait_live "$pid" 30; then
+    reap "$pid"; fail "watcher surfaced a bare turn-end while the pipeline had recent progress: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || fail "fresh pipeline progress printed a wake reason: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "fresh pipeline progress enqueued a durable wake"
+  reap "$pid"
+  pass "a bare turn-end with recent pipeline progress stays benignly suppressed"
+}
+
 # --- a no-verb signal whose crew is NOT provably working SURFACES -------------
 # This is the swallowed-finish fix: a crew that finished (or stopped and waits)
 # reports its final turn-end with no captain-relevant status and no running
@@ -1106,6 +1142,8 @@ test_crew_absorb_class_classifier
 test_signal_crew_provably_working_classifier
 test_provably_working_signal_absorbed
 test_turn_ended_provably_working_absorbed
+test_turn_ended_expired_pipeline_lease_with_blocker_surfaced
+test_turn_ended_recent_pipeline_progress_absorbed
 test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced
 test_actionable_signal_surfaced
