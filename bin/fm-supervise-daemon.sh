@@ -1346,7 +1346,6 @@ fm_super_main() {
     fi
     exit 1
   fi
-  echo "$$" > "$PIDFILE"
   fm_pid_identity "${BASHPID:-$$}" > "$LOCK/pid-identity" 2>/dev/null || true
 
   # --- auto-discover the supervisor BACKEND (tmux vs herdr) first -----------
@@ -1460,6 +1459,7 @@ fm_super_main() {
     exit 0
   }
   trap cleanup TERM INT
+  echo "$$" > "$PIDFILE"
 
   if [ "$supervision_mode" = normal-codex ]; then
     if [ -e "$STATE/.afk" ]; then
