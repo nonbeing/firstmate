@@ -38,6 +38,23 @@ test_codex_start_failure_leaves_no_false_owner() {
   pass "failed normal Codex startup leaves no false supervision owner"
 }
 
+test_codex_start_bad_target_leaves_no_false_owner() {
+  local dir state fakebin status
+  dir=$(make_supercase codex-bad-target)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  status=0
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
+    FM_SUPERVISOR_BACKEND=tmux FM_SUPERVISOR_TARGET=bad:0 \
+    FM_FAKE_TMUX_PANE_ALIVE=0 \
+    "$CODEX_START" >/dev/null 2>&1 || status=$?
+
+  [ "$status" -ne 0 ] || fail "normal Codex launcher unexpectedly succeeded with a bad target"
+  assert_absent "$state/.supervision-owner" "failed normal Codex startup with bad target left false supervision ownership"
+  pass "failed normal Codex startup with bad target leaves no false supervision owner"
+}
+
 test_normal_codex_daemon_shutdown_releases_owner() {
   local dir state fakebin daemon_pid i
   dir=$(make_supercase normal-codex-shutdown)
@@ -1843,6 +1860,7 @@ test_inject_msg_defers_on_dead_shell_unknown() {
 }
 
 test_codex_start_failure_leaves_no_false_owner
+test_codex_start_bad_target_leaves_no_false_owner
 test_normal_codex_daemon_shutdown_releases_owner
 test_normal_codex_daemon_shutdown_preserves_afk_owner
 test_afk_exit_non_codex_stops_its_home_daemon_and_clears_afk_state

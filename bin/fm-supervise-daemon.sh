@@ -1382,6 +1382,10 @@ fm_super_main() {
     log "startup failed: unsupported supervisor backend '$BACKEND' (source=$backend_source)"
     fm_lock_release "$LOCK" 2>/dev/null || true
     rm -f "$PIDFILE" 2>/dev/null || true
+    if [ "${FM_SUPERVISION_MODE:-}" = normal-codex ] && \
+      [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
+      fm_supervision_owner_clear "$STATE" 2>/dev/null || true
+    fi
     exit 1
   fi
 
@@ -1421,6 +1425,10 @@ fm_super_main() {
     log "startup failed: target '$TARGET' not found (backend=$BACKEND)"
     fm_lock_release "$LOCK" 2>/dev/null || true
     rm -f "$PIDFILE" 2>/dev/null || true
+    if [ "${FM_SUPERVISION_MODE:-}" = normal-codex ] && \
+      [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
+      fm_supervision_owner_clear "$STATE" 2>/dev/null || true
+    fi
     exit 1
   fi
 

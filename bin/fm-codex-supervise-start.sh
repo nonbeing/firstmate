@@ -59,6 +59,12 @@ if fm_daemon_lock_held_by_live_daemon "$LOCK" "$DAEMON"; then
   exit 0
 fi
 
+trap '
+  if [ "$(fm_supervision_owner_get "$STATE" 2>/dev/null || true)" = normal-codex ]; then
+    fm_supervision_owner_clear "$STATE" 2>/dev/null || true
+  fi
+' EXIT
+
 fm_supervision_owner_set "$STATE" normal-codex || {
   echo "error: could not record normal Codex supervision ownership" >&2
   exit 1
